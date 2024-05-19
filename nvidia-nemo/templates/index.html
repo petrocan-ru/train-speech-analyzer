@@ -1,0 +1,286 @@
+<!doctype html>
+	<head>
+		<meta charset="utf-8">
+		<title>Анализатор служебных переговоров</title>
+		<style>
+            body {
+                background: linear-gradient(315deg, rgba(101, 0, 94, 0.3) 3%, rgba(60,132,206,0.3) 38%, rgba(48,238,226,0.3) 68%, rgba(255,25,25,0.3) 98%);
+                animation: gradient 20s ease infinite;
+                background-size: 300% 300%;
+                background-attachment: fixed;            
+            }
+            @keyframes gradient {
+                0% {
+                    background-position: 0% 0%;
+                }
+                50% {
+                    background-position: 100% 100%;
+                }
+                100% {
+                    background-position: 0% 0%;
+                }
+            }
+
+            html {
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 14px;
+            }
+            .wrapper {
+                max-width: 1500px;
+                margin-left: auto;
+                margin-right: auto;
+                text-align: center;
+                background-color: #ffffffc9;
+                border-radius: 30px;
+                padding: 30px 30px;
+                margin-top: 30px;
+            }
+            .upload_form {
+                margin: 40px 10px;
+            }
+            #submit_button {
+                border-radius: 50px;
+                padding: 15px 25px;
+                background-color: #4c94c4;
+                color: #fff;
+                border: none;
+                font-size: 18px;
+                cursor: pointer;
+                transition: all ease-in-out 0.2s;
+            }
+            #submit_button:hover {
+                background-color: #66b2e6;
+            }
+            #filename_field {
+                font-size: 18px;
+                font-weight: 500;
+                cursor: pointer;
+            }
+            .file_input_field_block {
+                border-radius: 50px;
+                background-color: #eee;
+                padding: 15px 25px;
+                display: inline-flex;
+            }
+            #file_input_field {
+                position: absolute;
+                opacity: 0;
+                width: 400px;
+                display: block;
+            }
+            .audioplayer {
+                display: inline-flex;
+                vertical-align: middle;
+                margin: 0px 15px;
+            }
+            .status {
+                font-size: 22px;
+                text-align: center;
+                font-family: Consolas, monospace;
+            }
+            
+            .header-wrapper {
+                display: flex;
+                flex-direction: row;
+                justify-content: start;
+                margin-bottom: 20px;
+                align-items: center;
+            }
+            .logo {
+                margin-bottom: 20px;
+                display: flex;
+                flex-direction: column;
+                align-items: start;
+                font-family: 'Segoe UI';
+            }
+            .logo-subheader {
+                font-weight: 500;
+                font-size: 100%;
+                color: #2c376e;
+            }
+            .logo-header {
+                font-size: 220%;
+                font-weight: 300;
+                color: #3c4ea9;
+            }
+            .error {
+                color: red;
+                font-weight: bold;
+            }
+		</style>
+	</head>
+	<body>
+        <div class="wrapper">
+            <div class="header-wrapper">
+                <div class="logo">
+                    <div class="logo-subheader">Анализатор служебных переговоров</div>
+                    <div class="logo-header">Распознавание аудио</div>
+                </div>
+            </div>
+
+            <div class="upload_form">
+                <form id="file_upload_form" method="post" enctype="multipart/form-data">
+                    <label class="file_input_field_block">
+                        <div id="filename_field">Выбрать аудиофайл...</div>
+                        <input type="file" name="file" id="file_input_field">
+                    </label>
+                    <div class="audioplayer">
+                        <audio id="sound" controls></audio>
+                    </div>
+                    <input type="submit" id="submit_button" value="Распознать текст">
+                </form>
+            </div>
+            
+            <div class="status" id="status_box"></div>
+        </div>
+
+        <script src="static/fuse.min.js"></script>
+        <script>
+            const invalidWords = ["здравствуйте", "спасибо", "пожалуйста", "хорошо"];
+            const validStartPhrases = ["машинист поезда", "диспетчер"];
+            const validEndPhrases = ["верно", "понятно"];
+
+            // 57к_879 КВ - 02.05.2024 07_07_13 ВЕРНО
+            // const dialog = [
+            //   { role: "приветствие диспетчер", text: "Машинист поезда 4392 на приближении к станции «К»" },
+            //   { role: "приветствие машинист", text: "Машинист поезда 4392 Трифонов, слушаю вас" },
+            //   { role: "диспетчер", text: "На станцию «К» прибываете на второй путь, входной светофор открыт, выходной сигнал Ч-2 закрыт (запрещающий). ДНЦ Петрова" },
+            //   { role: "машинист", text: "Понятно, принимаете на второй путь, выходной сигнал Ч-2 закрыт (запрещающий), машинист 4392 Трифонов" },
+            //   { role: "подтверждение", text: "Верно" }
+            // ];
+
+            // 57к_879 КВ - 02.05.2024 07_07_13 НЕ ВЕРНО
+            /* const dialog = [
+            { role: "приветствие диспетчер", text: "Машинист поезда 4392 Трифонов, диспетчеру ответьте" },
+            { role: "приветствие машинист", text: "4392 машинист Трифонов проследую 2276 пост, слушаю вас" },
+            { role: "диспетчер", text: "У нас на входной Ч открыт на второй путь, на выход сигнал Ч-2 закрыт, на стоянку пропускаем нечетное ДНЦ (Фамилия не прослушивается)" },
+            { role: "машинист", text: "4392 машинист Трифонов следует на станцию Лабазу по 277 км, я вас понял. Лабазу сигнал Ч открыт, на второй главный свободный, Ч-2 сигнал закрыт. Скрещение с нечетным. Машинист Трифонов принял." },
+            { role: "подтверждение", text: "Верно, выполняйте" }
+            ]; */
+
+            function checkInvalidWords(text) {
+                return invalidWords.some(word => text.toLowerCase().includes(word));
+            }
+
+            function checkStartPhrase(text) {
+                return validStartPhrases.some(phrase => text.toLowerCase().startsWith(phrase));
+            }
+
+            function checkEndPhrase(text) {
+                return validEndPhrases.some(phrase => text.toLowerCase().includes(phrase));
+            }
+
+            function findInvalidWord(text) {
+                return invalidWords.find(word => text.toLowerCase().includes(word));
+            }
+
+            function validateDialog(dialog) {
+                let errors = [];
+
+                if (!dialog.length) {
+                    errors.push({ index: -1, message: "Диалог пуст." });
+                    return errors;
+                }
+
+                // Проверка начальной фразы
+                if (!checkStartPhrase(dialog[0].text)) {
+                    errors.push({ index: 0, message: "Неправильное приветствие." });
+                }
+                if(dialog.length > 1) {
+                    if (!checkStartPhrase(dialog[1].text)) {
+                        errors.push({ index: 1, message: "Неправильное приветствие." });
+                    }
+                }
+
+
+                // Проверка завершающей фразы
+                if (!checkEndPhrase(dialog[dialog.length - 1].text)) {
+                    errors.push({ index: dialog.length - 1, message: "Неправильное завершение диалога." });
+                }
+
+                for (let i = 0; i < dialog.length; i++) {
+                    const { role, text } = dialog[i];
+
+                    // Проверка на наличие недопустимых слов
+                    /* if (checkInvalidWords(text)) {
+                        errors.push({ index: i, message: `Недопустимое слово найдено в реплике: "${text}"` });
+                    } */
+                    const invalidWord = findInvalidWord(text);
+                    if (invalidWord) {
+                        errors.push({ index: i, message: `Недопустимое слово "${invalidWord}" найдено в реплике: "${text}"`});
+                    }
+
+
+                    // Проверка команд диспетчера и ответов машиниста
+                    if (role === "диспетчер" && i < dialog.length - 1 && dialog[i + 1].role === "машинист") {
+                        if (!dialog[i + 1].text.startsWith("Понятно")) {
+                            errors.push({ index: i + 1, message: `Ответ машиниста должен начинаться со слова "Понятно": "${dialog[i + 1].text}"` });
+                        }
+                    }
+                }
+
+                if (errors.length === 0) {
+                    errors.push({ index: -1, message: "Диалог корректен." });
+                }
+
+                return errors;
+            }
+
+            function displayDialog(dialog, errors) {
+                const dialogContainer = document.getElementById('status_box');
+                dialog.forEach(({ role, text }, index) => {
+                    const p = document.createElement('p');
+                    p.textContent = `${text}`;
+
+                    // Подсвечиваем ошибочные реплики
+                    const error = errors.find(e => e.index === index);
+                    if (error) {
+                        p.classList.add('error');
+                        p.title = error.message; // Показываем сообщение об ошибке при наведении
+                    }
+                    dialogContainer.appendChild(p);
+                });
+            }
+        </script>
+		<script>
+            var file_upload_form = document.getElementById('file_upload_form');
+            var statusP = document.getElementById('status_box');
+            var file_input_field = document.getElementById('file_input_field');
+            let filename_field = document.getElementById('filename_field');
+
+			file_input_field.onchange = function(e) {
+				var sound = document.getElementById('sound');
+                filename_field.innerText = this.files[0].name;
+                statusP.innerHTML = "";
+				sound.src = URL.createObjectURL(this.files[0]);
+				sound.onend = function(e) {
+					URL.revokeObjectURL(this.src);
+				}
+			}
+
+            file_upload_form.onsubmit = function(event) {
+                event.preventDefault();
+                statusP.innerHTML = 'Выполняется загрузка и распознавание, это займет от нескольких секунд до минуты...';
+
+                var formData = new FormData();
+                var file = file_input_field.files[0];
+                formData.append('file', file, file.name);
+
+                var xhr = new XMLHttpRequest();
+                xhr.responseType = 'json';
+                xhr.open('POST', '/upload', true);
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState == XMLHttpRequest.DONE) {
+                        //statusP.innerHTML = xhr.responseText;
+                        statusP.innerHTML = "";
+                        let dialog = xhr.response;
+                        console.log(dialog);
+                        const validationErrors = validateDialog(dialog);
+                        displayDialog(dialog, validationErrors);
+                    }
+                }
+                xhr.send(formData);
+            }
+		</script>
+	<body>
+</html>
