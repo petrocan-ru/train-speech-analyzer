@@ -14,7 +14,7 @@ from flask import Flask, request, redirect, url_for, render_template, send_file,
 
 from omegaconf import OmegaConf, open_dict
 
-ALLOWED_EXTENSIONS = {'wav', 'wave'}
+ALLOWED_EXTENSIONS = {'wav', 'wave', 'mp3'}
 
 app = Flask(__name__)
 
